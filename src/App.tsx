@@ -125,7 +125,7 @@ function App() {
   const spawnSidecar = async () => {
     try {
       // Use 'backend' command defined in shell.json (points to externalBin)
-      const pythonCmd = Command.create('backend');
+      const pythonCmd = Command.create('backend', ['run']);
 
       // Monitor stdout on command instance
       pythonCmd.stdout.on('data', (line) => {

@@ -12,7 +12,10 @@
                 {
                     "name": "backend",
                     "cmd": "backend",
-                    "sidecar": true
+                    "sidecar": true,
+                    "args": [
+                        "run"
+                    ]
                 }
             ]
         },
@@ -22,7 +25,10 @@
                 {
                     "name": "backend",
                     "cmd": "backend",
-                    "sidecar": true
+                    "sidecar": true,
+                    "args": [
+                        "run"
+                    ]
                 }
             ]
         },
@@ -32,7 +38,10 @@
                 {
                     "name": "backend",
                     "cmd": "backend",
-                    "sidecar": true
+                    "sidecar": true,
+                    "args": [
+                        "run"
+                    ]
                 }
             ]
         },
@@ -42,7 +51,10 @@
                 {
                     "name": "backend",
                     "cmd": "backend",
-                    "sidecar": true
+                    "sidecar": true,
+                    "args": [
+                        "run"
+                    ]
                 }
             ]
         }
