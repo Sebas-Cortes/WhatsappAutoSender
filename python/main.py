@@ -1,8 +1,13 @@
 import sys
+import os
+
+# FIX: Force Playwright to look in global cache (avoid _MEI temp dir issues)
+# MUST BE DONE BEFORE IMPORTING PLAYWRIGHT
+os.environ["PLAYWRIGHT_BROWSERS_PATH"] = "0"
+
 import json
 import time
 import asyncio
-import os
 import argparse
 from typing import Optional, List, Dict, Any
 from playwright.async_api import async_playwright, Page, BrowserContext
@@ -13,6 +18,8 @@ import urllib.parse
 # Force stdout to be line-buffered or unbuffered
 sys.stdout.reconfigure(encoding='utf-8')
 sys.stdin.reconfigure(encoding='utf-8')
+sys.stdin.reconfigure(encoding='utf-8')
+
 
 class WhatsAppSender:
     def __init__(self):
@@ -32,6 +39,64 @@ class WhatsAppSender:
         }
         print(json.dumps(event), flush=True)
 
+    def find_chromium_path(self) -> Optional[str]:
+        """Finds the Playwright Chromium executable in the standard local location."""
+        import glob
+        
+        def _get_path():
+            try:
+                # Metadata for Windows: %LOCALAPPDATA%\ms-playwright\chromium-*\chrome-win64\chrome.exe
+                local_app_data = os.environ.get("LOCALAPPDATA")
+                if not local_app_data:
+                    return None
+                
+                base_path = os.path.join(local_app_data, "ms-playwright")
+                pattern = os.path.join(base_path, "chromium-*", "chrome-win64", "chrome.exe")
+                
+                matches = glob.glob(pattern)
+                if matches:
+                    # Return the latest version found
+                    return sorted(matches)[-1]
+                return None
+            except Exception:
+                return None
+
+        # First attempt
+        path = _get_path()
+        if path:
+            return path
+
+        # If not found, try to install
+        try:
+            print(json.dumps({"type": "info", "message": "Installing Playwright browsers (first run only)...", "timestamp": time.time()}), flush=True)
+            from playwright.__main__ import main as playwright_cli
+            # We need to run this in a way that doesn't exit the process
+            # subprocess might be safer if we can trust sys.executable, but frozen app is tricky.
+            # importing directly runs in same process. playwright cli handles sys.argv, we needs to mock it or call internal
+            # Actually playwright.main just calls sys.exit(main()) which is bad.
+            # We should subprocess if possible, or use internal driver.
+            
+            # Using subprocess with the bundled python environment is safest if we can access the module
+            # But in PyInstaller onefile/onedir, we don't have easy access to 'python -m playwright'.
+            
+            # Alternative: Catch SystemExit?
+            try:
+                # Mock sys.argv for the cli
+                old_argv = sys.argv
+                sys.argv = ["playwright", "install", "chromium"]
+                playwright_cli()
+            except SystemExit:
+                pass # Playwright CLI exits on success
+            finally:
+                sys.argv = old_argv
+                
+            # Check again
+            return _get_path()
+            
+        except Exception as e:
+            print(json.dumps({"type": "error", "message": f"Auto-install failed: {e}", "timestamp": time.time()}), flush=True)
+            return None
+
     async def start_session(self, user_data_dir: str, headless: bool = False):
         try:
             self.playwright = await async_playwright().start()
@@ -40,9 +105,18 @@ class WhatsAppSender:
                 os.makedirs(user_data_dir, exist_ok=True)
                 
             await self.log("info", "Starting browser...", {"user_data_dir": user_data_dir})
+
+            # FIX: Manually find the global playwright browser path
+            # PyInstaller environment often ignores PLAYWRIGHT_BROWSERS_PATH="0"
+            executable_path = self.find_chromium_path()
+            if not executable_path:
+                await self.log("warning", "Could not find global Chromium. Letting Playwright decide (may fail).")
+            else:
+                 await self.log("info", f"Using browser at: {executable_path}")
             
             self.context = await self.playwright.chromium.launch_persistent_context(
                 user_data_dir=user_data_dir,
+                executable_path=executable_path, # Explicitly pass the path
                 headless=headless,
                 args=["--disable-blink-features=AutomationControlled"], # Basic evasion
                 viewport={"width": 1280, "height": 800}
@@ -103,7 +177,7 @@ class WhatsAppSender:
             return None
         return digits
 
-    async def send_message(self, phone: str, message: str, attachment: str = None) -> bool:
+    async def send_message(self, phone: str, message: str, dry_run: bool = False) -> bool:
         if not self.page:
             return False
             
@@ -137,12 +211,15 @@ class WhatsAppSender:
                 # Wait a random tiny bit
                 await asyncio.sleep(1 + (time.time() % 1)) 
                 
-                # Press Enter to send
-                await self.page.keyboard.press("Enter")
-                
-                # Verify sent (check for single checkmark or just assume sent if no error)
-                # Ideally wait for message bubble to appear status pending
-                await asyncio.sleep(1) # Safety wait
+                if not dry_run:
+                    # Press Enter to send
+                    await self.page.keyboard.press("Enter")
+                    # Verify sent (check for single checkmark or just assume sent if no error)
+                    # Ideally wait for message bubble to appear status pending
+                    await asyncio.sleep(1) # Safety wait
+                else:
+                    await self.log("info", f"[SIMULACIÓN] Mensaje preparado para {phone}. No enviado.")
+                    await asyncio.sleep(1)
                 
                 return True
                 
@@ -161,6 +238,7 @@ class WhatsAppSender:
             country_col = config.get("country_col", "")
             msg_template = config.get("message", "Hello")
             interval = config.get("interval_seconds", 60)
+            dry_run = config.get("dry_run", False)
             
             if phone_col not in df.columns:
                 await self.log("error", f"Column '{phone_col}' not found in Excel.")
@@ -196,7 +274,7 @@ class WhatsAppSender:
                     if pd.notna(val):
                         msg = msg.replace(f"{{{{{col}}}}}", str(val))
                 
-                success = await self.send_message(phone, msg)
+                success = await self.send_message(phone, msg, dry_run=dry_run)
                 status = "sent" if success else "fail"
                 
                 await self.log("progress", f"Processed row {index+1}", {

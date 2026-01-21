@@ -125,7 +125,7 @@ function App() {
   const spawnSidecar = async () => {
     try {
       // Use 'backend' command defined in shell.json (points to externalBin)
-      const pythonCmd = Command.create('backend', ['run']);
+      const pythonCmd = Command.sidecar('backend', ['run']);
 
       // Monitor stdout on command instance
       pythonCmd.stdout.on('data', (line) => {
@@ -181,7 +181,7 @@ function App() {
           </div>
           <div>
             <h1 className="text-3xl font-bold text-slate-900 tracking-tight">WhatsApp AutoSender</h1>
-            <p className="text-slate-500">Automatización segura y controlada</p>
+            <p className="text-slate-500">Automatización controlada por Sebastián Cortes</p>
           </div>
         </div>
 
